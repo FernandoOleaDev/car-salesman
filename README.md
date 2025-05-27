@@ -57,8 +57,8 @@ CarBot Pro showcases the cutting-edge capabilities of multi-agent AI systems in 
 ### Option 1: Automated Setup (Recommended)
 
 ```bash
-git clone https://github.com/your-username/carbot-pro.git
-cd carbot-pro
+git clone https://github.com/LIDR-academy/car-salesman.git
+cd car-salesman
 python quick_setup_advanced.py
 ```
 
@@ -73,8 +73,8 @@ python quick_setup_advanced.py
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/your-username/carbot-pro.git
-cd carbot-pro
+git clone https://github.com/LIDR-academy/car-salesman.git
+cd car-salesman
 ```
 
 2. **Create virtual environment**
@@ -238,12 +238,6 @@ graph TB
     Maria <--> SerpAPI
     Maria <--> KB
 ```
-
-### Agent Interactions
-
-For detailed interaction flows and diagrams, see:
-- [📋 Agent Interaction Guide](GUIA_INTERACCIONES_AGENTES.md)
-- [📊 System Diagrams](DIAGRAMAS_SISTEMA.md)
 
 ---
 

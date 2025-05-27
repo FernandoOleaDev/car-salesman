@@ -1,0 +1,61 @@
+# CarBot Pro - Advanced Multi-Agent Car Sales System
+# Core dependencies for the enhanced system
+
+# Streamlit for web interface
+streamlit>=1.45.0
+
+# LangChain ecosystem for AI agents
+langchain>=0.3.25
+langchain-openai>=0.3.18
+langchain-community>=0.3.24
+langchain-core>=0.3.61
+langchain-text-splitters>=0.3.8
+
+# OpenAI for latest models (GPT-4o, o4-mini)
+openai>=1.82.0
+
+# Data processing and analysis
+pandas>=2.2.3
+numpy>=2.2.6
+
+# Visualization
+plotly>=5.17.0
+altair>=5.5.0
+
+# Web search capabilities
+google-search-results>=2.4.2
+
+# Environment management
+python-dotenv>=1.1.0
+
+# HTTP requests
+requests>=2.32.3
+httpx>=0.28.1
+
+# JSON handling
+orjson>=3.10.18
+
+# Date and time utilities
+python-dateutil>=2.9.0
+
+# Logging and monitoring
+tenacity>=9.1.2
+
+# Data validation
+pydantic>=2.11.5
+pydantic-settings>=2.9.1
+
+# Additional utilities
+tqdm>=4.67.1
+typing-extensions>=4.13.2
+
+# Optional: For enhanced data processing
+pyarrow>=20.0.0
+
+# Optional: For advanced text processing
+tiktoken>=0.9.0
+
+# Development and testing (optional)
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0

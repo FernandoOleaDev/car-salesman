@@ -1,69 +1,132 @@
-import os
-import json
-import logging
-from typing import List, Dict, Any, Optional
-from datetime import datetime
-from dataclasses import dataclass, asdict
-from enum import Enum
+"""
+Sistema Avanzado Multi-Agente para Ventas de Coches
+==================================================
 
-from langchain.agents import Tool, AgentExecutor, create_react_agent
-from langchain.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
-from langchain_community.utilities import SerpAPIWrapper
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain.memory import ConversationBufferWindowMemory
+Este módulo implementa un sistema de ventas de coches basado en inteligencia artificial
+que utiliza múltiples agentes especializados trabajando en conjunto:
+- Carlos: Agente de ventas principal (GPT-4o)
+- María: Especialista en investigación (o4-mini)
+- Manager: Coordinador de negocio y políticas
 
-from enhanced_inventory_manager import get_inventory_manager, CarSearchResult
-from dotenv import load_dotenv
+El sistema maneja todo el proceso de venta desde el saludo inicial hasta el cierre,
+incluyendo búsqueda de inventario, investigación de vehículos, y gestión de objeciones.
+"""
 
-# Load environment variables
+# ========================================
+# IMPORTACIONES ESTÁNDAR DE PYTHON
+# ========================================
+import os          # Para operaciones del sistema operativo
+import json        # Para manejo de datos JSON
+import logging     # Para registro de eventos y debugging
+from typing import List, Dict, Any, Optional  # Para tipado estático
+from datetime import datetime                 # Para manejo de fechas y tiempos
+from dataclasses import dataclass, asdict    # Para estructuras de datos
+from enum import Enum                         # Para enumeraciones
+
+# ========================================
+# IMPORTACIONES DE LANGCHAIN (IA/LLM)
+# ========================================
+from langchain.agents import Tool, AgentExecutor, create_react_agent  # Agentes y herramientas
+from langchain.prompts import PromptTemplate                          # Plantillas de prompts
+from langchain_openai import ChatOpenAI                              # Modelo OpenAI
+from langchain_community.utilities import SerpAPIWrapper              # Búsqueda web
+from langchain_core.messages import HumanMessage, AIMessage          # Tipos de mensajes
+from langchain.memory import ConversationBufferWindowMemory          # Memoria conversacional
+
+# ========================================
+# IMPORTACIONES LOCALES
+# ========================================
+from enhanced_inventory_manager import get_inventory_manager, CarSearchResult  # Gestor de inventario
+from dotenv import load_dotenv  # Para cargar variables de entorno
+
+# Cargar variables de entorno desde archivo .env (API keys, configuraciones)
 load_dotenv()
 
-# Configure detailed logging
+# ========================================
+# CONFIGURACIÓN DEL SISTEMA DE LOGGING
+# ========================================
+# Configurar el sistema de registro para monitorear actividades y errores
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,  # Nivel de logging: INFO captura información general
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',  # Formato: timestamp - nombre - nivel - mensaje
     handlers=[
-        logging.FileHandler('carbot_system.log'),
-        logging.StreamHandler()
+        logging.FileHandler('carbot_system.log'),  # Guardar logs en archivo para persistencia
+        logging.StreamHandler()                    # También mostrar logs en la consola
     ]
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # Crear logger específico para este módulo
+
+# ========================================
+# DEFINICIÓN DE ENUMERACIONES (ESTADOS Y ROLES)
+# ========================================
 
 class SalesStage(Enum):
-    GREETING = "greeting"
-    DISCOVERY = "discovery"
-    PRESENTATION = "presentation"
-    OBJECTION_HANDLING = "objection_handling"
-    NEGOTIATION = "negotiation"
-    CLOSING = "closing"
-    FOLLOW_UP = "follow_up"
+    """
+    Enumeración que define las etapas del proceso de venta de coches.
+    Cada etapa representa una fase específica en el embudo de ventas.
+    """
+    GREETING = "greeting"                    # Saludo inicial y construcción de rapport
+    DISCOVERY = "discovery"                  # Descubrimiento de necesidades del cliente
+    PRESENTATION = "presentation"            # Presentación de vehículos específicos
+    OBJECTION_HANDLING = "objection_handling"  # Manejo de objeciones y preocupaciones
+    NEGOTIATION = "negotiation"              # Negociación de precios y términos
+    CLOSING = "closing"                      # Cierre de la venta
+    FOLLOW_UP = "follow_up"                 # Seguimiento post-venta
 
 class AgentRole(Enum):
-    CARLOS_SALES = "carlos_sales"
-    MARIA_RESEARCH = "maria_research"
-    MANAGER_COORDINATOR = "manager_coordinator"
+    """
+    Enumeración que define los diferentes roles de agentes en el sistema.
+    Cada agente tiene responsabilidades y características específicas.
+    """
+    CARLOS_SALES = "carlos_sales"            # Carlos - Agente principal de ventas
+    MARIA_RESEARCH = "maria_research"        # María - Especialista en investigación
+    MANAGER_COORDINATOR = "manager_coordinator"  # Manager - Coordinador de políticas y negocio
+
+# ========================================
+# ESTRUCTURAS DE DATOS (DATACLASSES)
+# ========================================
 
 @dataclass
 class CustomerProfile:
-    """Comprehensive customer profile"""
-    name: Optional[str] = None
-    budget_min: Optional[int] = None
-    budget_max: Optional[int] = None
-    preferred_make: Optional[str] = None
-    preferred_color: Optional[str] = None
-    body_style_preference: Optional[str] = None
-    fuel_type_preference: Optional[str] = None
-    family_size: Optional[int] = None
-    primary_use: Optional[str] = None
-    safety_priority: bool = False
-    luxury_preference: bool = False
-    eco_friendly: bool = False
-    needs: List[str] = None
-    objections: List[str] = None
-    interaction_history: List[Dict] = None
+    """
+    Perfil completo del cliente que almacena toda la información relevante
+    para personalizar la experiencia de venta y las recomendaciones.
+    
+    Esta clase encapsula tanto información demográfica como preferencias,
+    necesidades, historial de interacciones y objeciones del cliente.
+    """
+    # Información básica del cliente
+    name: Optional[str] = None                      # Nombre del cliente
+    
+    # Información financiera
+    budget_min: Optional[int] = None                # Presupuesto mínimo en euros
+    budget_max: Optional[int] = None                # Presupuesto máximo en euros
+    
+    # Preferencias de vehículo
+    preferred_make: Optional[str] = None            # Marca preferida (BMW, Mercedes, etc.)
+    preferred_color: Optional[str] = None           # Color preferido
+    body_style_preference: Optional[str] = None     # Tipo de carrocería (SUV, sedán, etc.)
+    fuel_type_preference: Optional[str] = None      # Tipo de combustible (gasolina, híbrido, eléctrico)
+    
+    # Información del contexto familiar/personal
+    family_size: Optional[int] = None               # Número de miembros de la familia
+    primary_use: Optional[str] = None               # Uso principal (trabajo, familiar, etc.)
+    
+    # Prioridades y preferencias especiales
+    safety_priority: bool = False                   # Si la seguridad es una prioridad alta
+    luxury_preference: bool = False                 # Si prefiere características de lujo
+    eco_friendly: bool = False                      # Si busca opciones ecológicas
+    
+    # Listas dinámicas de información
+    needs: List[str] = None                        # Lista de necesidades específicas
+    objections: List[str] = None                   # Lista de objeciones expresadas
+    interaction_history: List[Dict] = None         # Historial completo de interacciones
     
     def __post_init__(self):
+        """
+        Método ejecutado automáticamente después de la inicialización.
+        Inicializa las listas como listas vacías si son None para evitar errores.
+        """
         if self.needs is None:
             self.needs = []
         if self.objections is None:
@@ -73,81 +136,137 @@ class CustomerProfile:
 
 @dataclass
 class AgentCommunication:
-    """Inter-agent communication structure"""
-    from_agent: AgentRole
-    to_agent: AgentRole
-    message_type: str
-    content: str
-    timestamp: datetime
-    priority: str = "normal"
-    requires_response: bool = False
+    """
+    Estructura que define la comunicación entre agentes del sistema.
+    Permite rastrear y registrar todas las interacciones internas entre
+    Carlos, María y el Manager para análisis y debugging.
+    """
+    from_agent: AgentRole      # Agente que envía el mensaje
+    to_agent: AgentRole        # Agente que recibe el mensaje
+    message_type: str          # Tipo de mensaje (consulta, respuesta, etc.)
+    content: str               # Contenido completo del mensaje
+    timestamp: datetime        # Marca de tiempo precisa
+    priority: str = "normal"   # Prioridad del mensaje (normal, high, urgent)
+    requires_response: bool = False  # Si el mensaje requiere una respuesta
+
+# ========================================
+# CLASE PRINCIPAL DEL SISTEMA MULTI-AGENTE
+# ========================================
 
 class AdvancedCarSalesSystem:
-    """Advanced multi-agent car sales system with professional workflows"""
+    """
+    Sistema avanzado de ventas de coches con múltiples agentes de IA especializados.
+    
+    Esta clase orquesta la interacción entre tres agentes principales:
+    - Carlos: Agente de ventas principal que interactúa directamente con el cliente
+    - María: Especialista en investigación que proporciona información detallada
+    - Manager: Coordinador de políticas de negocio y decisiones estratégicas
+    
+    El sistema maneja todo el ciclo de venta desde el primer contacto hasta el cierre.
+    """
     
     def __init__(self, openai_api_key: str, serpapi_api_key: str = None):
+        """
+        Inicializar el sistema multi-agente con las configuraciones necesarias.
+        
+        Args:
+            openai_api_key (str): Clave API de OpenAI para los modelos de lenguaje
+            serpapi_api_key (str, optional): Clave API de SerpAPI para búsquedas web
+        """
+        # Almacenar las claves API para uso posterior
         self.openai_api_key = openai_api_key
         self.serpapi_api_key = serpapi_api_key
         
-        # Initialize inventory manager
+        # Inicializar el gestor de inventario que maneja la base de datos de vehículos
         self.inventory_manager = get_inventory_manager()
         
-        # Initialize customer profile
+        # Inicializar el perfil del cliente (comienza vacío)
         self.customer_profile = CustomerProfile()
+        # Establecer la etapa inicial de venta (saludo)
         self.sales_stage = SalesStage.GREETING
         
-        # Communication system
-        self.agent_communications = []
-        self.conversation_log = []
-        self.carlos_customer_notes: List[str] = [] # Carlos's customer notes
+        # Sistemas de comunicación y seguimiento
+        self.agent_communications = []      # Lista de comunicaciones entre agentes
+        self.conversation_log = []          # Registro completo de la conversación
+        self.carlos_customer_notes: List[str] = []  # Notas personales de Carlos sobre el cliente
         
-        # Initialize LLMs with latest models
+        # ========================================
+        # CONFIGURACIÓN DE MODELOS DE LENGUAJE
+        # ========================================
+        
+        # Carlos: Agente de ventas principal
+        # Usa GPT-4o con temperatura alta para conversaciones creativas y persuasivas
         self.carlos_llm = ChatOpenAI(
-            temperature=0.8,  # Creative for sales conversations
+            temperature=0.8,              # Alta creatividad para técnicas de venta
             openai_api_key=openai_api_key,
-            model_name="gpt-4o",  # Latest GPT-4o for advanced sales
-            max_tokens=1000
+            model_name="gpt-4o",         # Modelo más avanzado para ventas complejas
+            max_tokens=1000              # Respuestas detalladas
         )
         
+        # María: Especialista en investigación
+        # Usa o4-mini con temperatura baja para análisis factuales y objetivos
         self.maria_llm = ChatOpenAI(
-            temperature=1,  # Factual for research
+            temperature=1,               # Baja temperatura para precisión factual
             openai_api_key=openai_api_key,
-            model_name="o4-mini",  # o4-mini for analytical research
-            max_tokens=800
+            model_name="o4-mini",        # Modelo especializado para análisis
+            max_tokens=800               # Informes concisos pero completos
         )
         
+        # Manager: Coordinador de políticas de negocio
+        # Usa GPT-4o con temperatura balanceada para decisiones estratégicas
         self.manager_llm = ChatOpenAI(
-            temperature=0.4,  # Balanced for coordination
+            temperature=0.4,             # Temperatura balanceada para decisiones
             openai_api_key=openai_api_key,
-            model_name="gpt-4o",  # GPT-4o for intelligent coordination
-            max_tokens=600
+            model_name="gpt-4o",         # Modelo avanzado para coordinación inteligente
+            max_tokens=600               # Respuestas directas y estratégicas
         )
         
-        # Initialize memory for each agent
+        # ========================================
+        # SISTEMA DE MEMORIA CONVERSACIONAL
+        # ========================================
+        
+        # Inicializar memoria para Carlos (mantiene contexto de las últimas 10 interacciones)
         self.carlos_memory = ConversationBufferWindowMemory(
-            memory_key="chat_history",
-            input_key="input",
-            k=10,
-            return_messages=True
+            memory_key="chat_history",   # Clave para acceder al historial
+            input_key="input",          # Clave para las entradas del usuario
+            k=10,                       # Mantener últimas 10 interacciones
+            return_messages=True        # Devolver mensajes estructurados
         )
         
-        # Initialize tools and agents
+        # ========================================
+        # INICIALIZACIÓN DE HERRAMIENTAS Y AGENTES
+        # ========================================
+        
+        # Crear herramientas avanzadas que los agentes pueden usar
         self.tools = self._create_advanced_tools()
+        # Crear los agentes especializados
         self.carlos_agent = self._create_carlos_agent()
         self.maria_agent = self._create_maria_agent()
         self.manager_agent = self._create_manager_agent()
         
+        # Registrar inicialización exitosa
         logger.info("🚀 Advanced Car Sales System initialized successfully")
     
     def _perform_intelligent_inventory_search(self, query: str) -> str:
-        """Helper method for intelligent inventory search, used by the Manager."""
-        # No direct logging of agent action here, as it's an internal system capability
-        # The manager's action will be logged when it decides to use this.
+        """
+        Método auxiliar para realizar búsqueda inteligente en el inventario.
+        Utilizado por el Manager para encontrar vehículos que coincidan con los criterios.
+        
+        Args:
+            query (str): Consulta de búsqueda con criterios del cliente
+            
+        Returns:
+            str: Resultados formateados de la búsqueda o mensaje de error
+        """
+        # No se registra directamente la acción del agente aquí, ya que es una capacidad interna del sistema
+        # La acción del manager se registrará cuando decida usar esto
         try:
+            # Realizar búsqueda en el inventario con máximo 8 resultados
             results_objects = self.inventory_manager.intelligent_search(query, max_results=8)
+            # Formatear resultados para mostrar a los agentes
             formatted_results = self.inventory_manager.format_search_results_for_agent(results_objects, max_display=len(results_objects))
             
-            # Log the outcome of the search itself
+            # Registrar el resultado de la búsqueda
             logger.info(f"⚙️ System performed inventory search for query '{query}', found {len(results_objects)} vehicles.")
             return formatted_results
         except Exception as e:
@@ -155,12 +274,24 @@ class AdvancedCarSalesSystem:
             return "❌ Error interno al realizar la búsqueda de inventario."
     
     def _create_advanced_tools(self) -> List[Tool]:
-        """Create advanced tools for the multi-agent system"""
+        """
+        Crear herramientas avanzadas para el sistema multi-agente.
+        Estas herramientas permiten a Carlos interactuar con otros agentes y el sistema.
+        
+        Returns:
+            List[Tool]: Lista de herramientas disponibles para los agentes
+        """
         tools = []
         
-        # Manager consultation tool
+        # ========================================
+        # HERRAMIENTA DE CONSULTA AL MANAGER
+        # ========================================
         def consult_manager(request: str) -> str:
-            """Consult with the manager for pricing, priorities, and business decisions"""
+            """
+            Consultar con el manager para decisiones de precios, prioridades e inventario.
+            Esta herramienta permite a Carlos obtener orientación estratégica.
+            """
+            # Registrar la solicitud de consulta
             self._log_agent_communication(
                 AgentRole.CARLOS_SALES,
                 AgentRole.MANAGER_COORDINATOR,
@@ -169,9 +300,10 @@ class AdvancedCarSalesSystem:
             )
             
             try:
-                # Manager's business logic and decision making
+                # Lógica de negocios y toma de decisiones del manager
                 manager_response = self._manager_decision_engine(request)
                 
+                # Registrar la respuesta del manager
                 self._log_agent_communication(
                     AgentRole.MANAGER_COORDINATOR,
                     AgentRole.CARLOS_SALES,
@@ -191,9 +323,15 @@ class AdvancedCarSalesSystem:
             description="Consult with the sales manager for pricing decisions, inventory priorities, and business policies"
         ))
         
-        # Research tool via Maria
+        # ========================================
+        # HERRAMIENTA DE INVESTIGACIÓN VÍA MARÍA
+        # ========================================
         def research_vehicle_info(query: str) -> str:
-            """Research detailed vehicle information, reviews, and market data"""
+            """
+            Investigar información detallada de vehículos, reseñas y datos de mercado.
+            María proporciona análisis experto basado en búsquedas web y conocimiento.
+            """
+            # Registrar solicitud de investigación
             self._log_agent_communication(
                 AgentRole.CARLOS_SALES,
                 AgentRole.MARIA_RESEARCH,
@@ -202,8 +340,10 @@ class AdvancedCarSalesSystem:
             )
             
             try:
+                # Motor de investigación de María
                 research_result = self._maria_research_engine(query)
                 
+                # Registrar respuesta de investigación
                 self._log_agent_communication(
                     AgentRole.MARIA_RESEARCH,
                     AgentRole.CARLOS_SALES,
@@ -223,12 +363,18 @@ class AdvancedCarSalesSystem:
             description="Research detailed vehicle specifications, reviews, safety ratings, and market information"
         ))
         
-        # Customer profiling tool
+        # ========================================
+        # HERRAMIENTA DE ACTUALIZACIÓN DE PERFIL DEL CLIENTE
+        # ========================================
         def update_customer_profile(info: str) -> str:
-            """Update customer profile with new information"""
+            """
+            Actualizar el perfil del cliente con nueva información obtenida en la conversación.
+            Extrae automáticamente preferencias, necesidades, presupuesto, etc.
+            """
             self._log_agent_action(AgentRole.CARLOS_SALES, "profile_update", info)
             
             try:
+                # Procesar texto y extraer información estructurada
                 self._update_customer_profile_from_text(info)
                 profile_summary = self._get_customer_profile_summary()
                 
@@ -245,14 +391,21 @@ class AdvancedCarSalesSystem:
             description="Update customer profile with preferences, needs, budget, and other relevant information"
         ))
         
-        # Sales stage management
+        # ========================================
+        # HERRAMIENTA DE GESTIÓN DE ETAPAS DE VENTA
+        # ========================================
         def update_sales_stage(stage: str) -> str:
-            """Update the current sales stage"""
+            """
+            Actualizar la etapa actual del proceso de venta.
+            Permite seguimiento del progreso a través del embudo de ventas.
+            """
             try:
+                # Validar y convertir la etapa
                 new_stage = SalesStage(stage.lower())
                 old_stage = self.sales_stage
                 self.sales_stage = new_stage
                 
+                # Registrar transición de etapa
                 self._log_agent_action(
                     AgentRole.CARLOS_SALES,
                     "stage_transition",
@@ -270,22 +423,27 @@ class AdvancedCarSalesSystem:
             description="Update the current sales stage (greeting, discovery, presentation, objection_handling, negotiation, closing)"
         ))
 
-        # Tool to finalize sale and reserve vehicle
+        # ========================================
+        # HERRAMIENTA DE FINALIZACIÓN DE VENTA Y RESERVA
+        # ========================================
         def finalize_sale_and_reserve_vehicle(vin: str) -> str:
-            """Finalizes the sale of a vehicle and marks it as reserved in the inventory. 
-            Use this tool ONLY when the customer has explicitly confirmed they want to purchase a specific vehicle. 
-            Provide the VIN of the vehicle to be reserved.
-
-            Args:
-                vin (str): The Vehicle Identification Number (VIN) of the car to be reserved.
-            Returns:
-                str: Confirmation message or error if reservation failed.
             """
+            Finaliza la venta de un vehículo y lo marca como reservado en el inventario.
+            Usar SOLO cuando el cliente haya confirmado explícitamente que quiere comprar.
+            
+            Args:
+                vin (str): Número de identificación del vehículo (VIN) a reservar
+                
+            Returns:
+                str: Mensaje de confirmación o error si la reserva falló
+            """
+            # Registrar intento de finalización de venta
             self._log_agent_action(AgentRole.CARLOS_SALES, "finalize_sale_attempt", f"VIN: {vin}")
             try:
+                # Intentar reservar el vehículo en el sistema de inventario
                 success = self.inventory_manager.reserve_vehicle(vin)
                 if success:
-                    # Potentially trigger other post-sale actions here in a real system
+                    # Aquí se podrían activar otras acciones post-venta en un sistema real
                     logger.info(f"🎉 Sale finalized and vehicle {vin} reserved by Carlos.")
                     return f"¡Excelente! El vehículo con VIN {vin} ha sido reservado exitosamente. El proceso de compra ha concluido. Gracias!"
                 else:
@@ -301,15 +459,19 @@ class AdvancedCarSalesSystem:
             description="Use to finalize a sale and reserve a specific vehicle by its VIN when the customer agrees to purchase."
         ))
 
-        # Tool to give final response to client
+        # ========================================
+        # HERRAMIENTA DE RESPUESTA DIRECTA AL CLIENTE
+        # ========================================
         def respond_to_client(response: str) -> str:
-            """Delivers your message directly to the customer. Use this when you are ready to communicate your thought or answer.
-            IMPORTANT: After using this tool, you MUST then use the 'Final Answer:' format to conclude your turn, typically repeating the response you just sent.
-
+            """
+            Entrega tu mensaje directamente al cliente. Usar cuando estés listo para comunicar tu respuesta.
+            IMPORTANTE: Después de usar esta herramienta, DEBES usar el formato 'Final Answer:' para concluir.
+            
             Args:
-                response (str): The complete message you want to send to the client.
+                response (str): El mensaje completo que quieres enviar al cliente
+                
             Returns:
-                str: The response that was sent to the client. This observation will be your own message.
+                str: La respuesta que se envió al cliente
             """
             logger.info(f"🗣️ CARLOS TO CLIENT (via RespondToClient tool): {response[:100]}...")
             return response
@@ -320,25 +482,32 @@ class AdvancedCarSalesSystem:
             description="Use this tool to provide your final answer or response directly to the customer. This action concludes your processing for the current customer input, and the observation returned will be the final answer."
         ))
 
-        # Carlos's Customer Notes tool
+        # ========================================
+        # HERRAMIENTA DE NOTAS PERSONALES DE CARLOS
+        # ========================================
         def update_customer_notes(note_to_add: str, mode: str = "append") -> str:
-            """Adds or overwrites notes in Carlos's personal customer notepad. 
-            Use 'append' to add a new note to existing ones. 
-            Use 'overwrite' to replace all previous notes with the new note_to_add.
-            This notepad is for capturing details, nuances, or specific customer statements that might not fit the structured profile.
-
-            Args:
-                note_to_add (str): The text of the note to add or use for overwriting.
-                mode (str): Either 'append' or 'overwrite'. Defaults to 'append'.
-            Returns:
-                str: Confirmation message of the action taken.
             """
+            Añade o sobrescribe notas en el bloc personal de Carlos sobre el cliente.
+            'append' para añadir nueva nota. 'overwrite' para reemplazar todas las notas.
+            Para capturar detalles, matices o declaraciones específicas del cliente.
+            
+            Args:
+                note_to_add (str): El texto de la nota a añadir o usar para sobrescribir
+                mode (str): 'append' o 'overwrite'. Por defecto 'append'
+                
+            Returns:
+                str: Mensaje de confirmación de la acción realizada
+            """
+            # Registrar intento de actualización de notas
             self._log_agent_action(AgentRole.CARLOS_SALES, "update_customer_notes_attempt", f"Mode: {mode}, Note: {note_to_add[:50]}...")
+            
             if mode.lower() == "overwrite":
+                # Sobrescribir todas las notas con la nueva
                 self.carlos_customer_notes = [note_to_add]
                 logger.info(f"📝 Carlos's customer notes OVERWRITTEN. Current notes: {len(self.carlos_customer_notes)}")
                 return f"Notas sobrescritas. Nueva nota: '{note_to_add[:100]}...'"
             elif mode.lower() == "append":
+                # Añadir nueva nota a las existentes
                 self.carlos_customer_notes.append(note_to_add)
                 logger.info(f"📝 Carlos's customer note APPENDED. Total notes: {len(self.carlos_customer_notes)}")
                 return f"Nota añadida: '{note_to_add[:100]}...'. Total de notas: {len(self.carlos_customer_notes)}."
@@ -529,30 +698,54 @@ Ahora, comienza tu respuesta siguiendo el formato Thought/Action/Action Input o 
         # Manager will be called through the decision engine
         return None
     
+    # =============================================
+    # MOTOR DE DECISIONES DEL MANAGER
+    # =============================================
     def _manager_decision_engine(self, request: str) -> str:
-        """Manager's decision-making engine for business policies"""
+        """
+        MOTOR DE DECISIONES DEL MANAGER
+        
+        Este es el cerebro estratégico del manager, responsable de:
+        - Procesar consultas del agente de ventas Carlos
+        - Aplicar políticas comerciales y estrategias de negocio
+        - Proporcionar directrices de venta específicas
+        - Autorizar descuentos y negociaciones especiales
+        - Priorizar inventario según objetivos comerciales
+        
+        Args:
+            request (str): Solicitud o consulta recibida del agente de ventas
+            
+        Returns:
+            str: Respuesta estratégica con directrices específicas
+        """
         logger.info(f"🏢 MANAGER CONSULTATION: {request}")
         
         request_lower = request.lower()
         
-        # Inventory search request from Carlos
+        # ========================================
+        # PROCESAMIENTO DE BÚSQUEDAS DE INVENTARIO
+        # ========================================
+        # Detectar solicitudes de búsqueda de inventario del agente de ventas
         if any(keyword in request_lower for keyword in ["buscar coche", "opciones de vehículo", "inventario", "búsqueda de coches", "inventory search", "buscar en inventario"]):
             logger.info(f"🏢 Manager received inventory search request: {request}")
-            # Extract the actual query part for the inventory search.
-            # This is a simple heuristic; a more robust NLP approach might be needed for complex requests.
-            search_query = request # Default to full request
-            # Try to be a bit smarter in extracting the query
+            
+            # Extraer la consulta específica de búsqueda del texto completo
+            # Esta es una heurística simple; un enfoque NLP más robusto podría ser necesario para solicitudes complejas
+            search_query = request # Por defecto usar la solicitud completa
+            
+            # Intentar ser más inteligente en la extracción de la consulta
             if "necesito opciones de" in request_lower:
                  search_query = request[request_lower.find("necesito opciones de") + len("necesito opciones de"):].strip()
             elif "busca un" in request_lower:
                  search_query = request[request_lower.find("busca un") + len("busca un"):].strip()
             elif "buscando" in request_lower:
                  search_query = request[request_lower.find("buscando") + len("buscando"):].strip()
-            elif "query:" in request_lower: # If Carlos explicitly passes a query
+            elif "query:" in request_lower: # Si Carlos pasa explícitamente una consulta
                  search_query = request[request_lower.find("query:") + len("query:"):].strip()
             
-            if not search_query or search_query == request: # Fallback if extraction is not specific enough
-                 # Try to remove common phrases if they are the whole request
+            # Fallback si la extracción no es lo suficientemente específica
+            if not search_query or search_query == request:
+                 # Intentar eliminar frases comunes si constituyen toda la solicitud
                 phrases_to_remove = ["el cliente busca", "necesito opciones del inventario", "realiza una búsqueda de inventario para", "inventory search for"]
                 for phrase in phrases_to_remove:
                     if phrase in request_lower:
@@ -560,12 +753,16 @@ Ahora, comienza tu respuesta siguiendo el formato Thought/Action/Action Input o 
                         break
             
             logger.info(f"🛠️ Manager extracted search query: '{search_query}'")
-            if not search_query.strip() or search_query.strip() == ".": # Avoid empty searches
+            
+            # Evitar búsquedas vacías o demasiado genéricas
+            if not search_query.strip() or search_query.strip() == ".":
                 logger.warning("⚠️ Manager received an empty or too generic search query. Asking for clarification.")
                 return "Por favor, especifica mejor qué tipo de vehículos necesita el cliente para la búsqueda en inventario."
 
-            search_results_objects = self.inventory_manager.intelligent_search(search_query, max_results=8) # Assuming this returns list of CarSearchResult
+            # Realizar búsqueda inteligente en el inventario
+            search_results_objects = self.inventory_manager.intelligent_search(search_query, max_results=8)
             
+            # Si no se encuentran resultados
             if not search_results_objects:
                 return f"""
 🏢 **RESPUESTA DEL MANAGER - BÚSQUEDA DE INVENTARIO:**
@@ -574,10 +771,14 @@ No se encontraron vehículos que coincidan con los criterios: '{search_query}'.
 Por favor, informa al cliente e intenta con criterios más amplios si es posible.
                 """
 
+            # Formatear resultados de búsqueda para el agente
             formatted_search_results = self.inventory_manager.format_search_results_for_agent(search_results_objects, max_display=len(search_results_objects))
 
-            # Manager applies business rules to select and prioritize
-            # For now, simple logic: prioritize first 1-2, give some generic reasons
+            # ========================================
+            # APLICACIÓN DE REGLAS DE NEGOCIO Y PRIORIZACIÓN
+            # ========================================
+            # El manager aplica reglas de negocio para seleccionar y priorizar vehículos
+            # Por ahora, lógica simple: priorizar los primeros 1-2, dar razones genéricas
             prioritized_vehicles = []
             directives = ""
             if search_results_objects:
@@ -620,33 +821,57 @@ Vehículos Encontrados que Coinciden (para tu referencia interna):
             )
             return response.strip()
         
-        # Pricing decisions
+        # ========================================
+        # ENRUTAMIENTO DE CONSULTAS ESPECIALIZADAS
+        # ========================================
+        # Decisiones de precios y descuentos
         if any(word in request_lower for word in ['precio', 'descuento', 'rebaja', 'oferta']):
             return self._handle_pricing_request(request)
         
-        # Inventory priorities
+        # Prioridades de inventario y recomendaciones
         elif any(word in request_lower for word in ['prioridad', 'recomendar', 'inventario']):
             return self._handle_inventory_priority_request(request)
         
-        # Policy questions
+        # Preguntas sobre políticas y procedimientos
         elif any(word in request_lower for word in ['política', 'regla', 'procedimiento']):
             return self._handle_policy_request(request)
         
-        # General business consultation
+        # Consultas generales de negocio
         else:
             return self._handle_general_consultation(request)
     
+    # =============================================
+    # GESTIÓN ESPECIALIZADA DE PRECIOS Y DESCUENTOS
+    # =============================================
     def _handle_pricing_request(self, request: str) -> str:
-        """Handle pricing and discount requests"""
-        # Business rules for pricing
+        """
+        GESTIÓN DE SOLICITUDES DE PRECIOS Y DESCUENTOS
+        
+        Procesa consultas relacionadas con políticas de precios, autorización de descuentos
+        y estrategias de negociación. Aplica reglas de negocio específicas para mantener
+        márgenes de beneficio mientras satisface las necesidades del cliente.
+        
+        Args:
+            request (str): Solicitud específica sobre precios o descuentos
+            
+        Returns:
+            str: Directrices de precios con autorizaciones y restricciones específicas
+        """
+        # ========================================
+        # REGLAS DE NEGOCIO PARA PRECIOS
+        # ========================================
+        # Configuración de políticas de descuento y márgenes empresariales
         pricing_rules = {
-            "descuento_maximo": 0.15,  # 15% max discount
-            "margen_minimo": 0.08,     # 8% minimum margin
+            "descuento_maximo": 0.15,  # 15% descuento máximo autorizado
+            "margen_minimo": 0.08,     # 8% margen mínimo requerido
             "vehiculos_premium": ["Ferrari", "Lamborghini", "Rolls-Royce", "Bentley"],
-            "descuento_premium": 0.05   # 5% max for premium brands
+            "descuento_premium": 0.05   # 5% máximo para marcas premium
         }
         
-        response = """
+        # ========================================
+        # RESPUESTA ESTRUCTURADA DE POLÍTICA DE PRECIOS
+        # ========================================
+        response = f"""
 🏢 **DECISIÓN DEL MANAGER - POLÍTICA DE PRECIOS:**
 
 Tras analizar tu solicitud sobre precios ('{request}') y consultar nuestras directrices internas de descuentos y márgenes, te proporciono la siguiente política:
@@ -673,11 +898,35 @@ Tras analizar tu solicitud sobre precios ('{request}') y consultar nuestras dire
         logger.info("💼 Manager authorized pricing guidelines")
         return response.strip()
     
+    # =============================================
+    # GESTIÓN DE PRIORIDADES DE INVENTARIO
+    # =============================================
     def _handle_inventory_priority_request(self, request: str) -> str:
-        """Handle inventory priority and recommendation requests"""
-        # Get current inventory stats
+        """
+        GESTIÓN DE PRIORIDADES Y RECOMENDACIONES DE INVENTARIO
+        
+        Analiza el estado actual del inventario y proporciona directrices estratégicas
+        sobre qué vehículos priorizar en las ventas. Considera factores como:
+        - Márgenes de beneficio por marca
+        - Tiempo en inventario
+        - Demanda del mercado
+        - Objetivos comerciales actuales
+        
+        Args:
+            request (str): Consulta sobre prioridades de inventario
+            
+        Returns:
+            str: Estrategias de venta y prioridades de inventario actualizadas
+        """
+        # ========================================
+        # OBTENCIÓN DE ESTADÍSTICAS ACTUALES DEL INVENTARIO
+        # ========================================
+        # Consultar métricas en tiempo real del gestor de inventario
         stats = self.inventory_manager.get_inventory_stats()
         
+        # ========================================
+        # RESPUESTA ESTRUCTURADA DE PRIORIDADES DE INVENTARIO
+        # ========================================
         response = f"""
 🏢 **DECISIÓN DEL MANAGER - PRIORIDADES DE INVENTARIO:**
 
@@ -709,9 +958,30 @@ Las siguientes son las prioridades y estrategias de venta actuales:
         logger.info("📊 Manager provided inventory priorities")
         return response.strip()
     
+    # =============================================
+    # GESTIÓN DE POLÍTICAS Y PROCEDIMIENTOS
+    # =============================================
     def _handle_policy_request(self, request: str) -> str:
-        """Handle policy and procedure questions"""
-        response = """
+        """
+        GESTIÓN DE CONSULTAS SOBRE POLÍTICAS Y PROCEDIMIENTOS
+        
+        Proporciona información sobre políticas empresariales, procedimientos
+        operativos y directrices de servicio al cliente. Incluye políticas de:
+        - Devoluciones y garantías
+        - Servicios incluidos
+        - Procedimientos de escalación
+        - Estándares de transparencia
+        
+        Args:
+            request (str): Consulta específica sobre políticas empresariales
+            
+        Returns:
+            str: Información detallada sobre políticas y procedimientos aplicables
+        """
+        # ========================================
+        # RESPUESTA ESTRUCTURADA DE POLÍTICAS EMPRESARIALES
+        # ========================================
+        response = f"""
 🏢 **POLÍTICAS Y PROCEDIMIENTOS DE LA EMPRESA:**
 
 En respuesta a tu consulta sobre políticas ('{request}'), aquí tienes un resumen de los procedimientos relevantes de la empresa:
@@ -742,7 +1012,23 @@ En respuesta a tu consulta sobre políticas ('{request}'), aquí tienes un resum
         logger.info("📋 Manager provided policy information")
         return response.strip()
     
+    # =============================================
+    # GESTIÓN DE CONSULTAS GENERALES DE NEGOCIO
+    # =============================================
     def _handle_general_consultation(self, request: str) -> str:
+        """
+        GESTIÓN DE CONSULTAS GENERALES DEL MANAGER
+        
+        Maneja consultas de negocio que no caen en categorías específicas como
+        precios, inventario o políticas. Proporciona orientación general basada
+        en mejores prácticas comerciales y objetivos empresariales actuales.
+        
+        Args:
+            request (str): Consulta general de negocio
+            
+        Returns:
+            str: Recomendaciones y orientación general de negocio
+        """
         """Handle general business consultations"""
         response = f"""
 🏢 **CONSULTA GENERAL DEL MANAGER:**
@@ -771,26 +1057,64 @@ He analizado tu consulta general: "{request}".
         logger.info("💼 Manager provided general consultation")
         return response.strip()
     
+    # =============================================
+    # MOTOR DE INVESTIGACIÓN DE MARÍA
+    # =============================================
     def _maria_research_engine(self, query: str) -> str:
-        """Maria's research engine for vehicle information"""
+        """
+        MOTOR DE INVESTIGACIÓN AVANZADO DE MARÍA
+        
+        Sistema de investigación de vehículos que combina búsqueda web y análisis de IA.
+        María actúa como investigadora especializada que recopila información de fuentes
+        externas y la procesa usando inteligencia artificial para proporcionar análisis
+        detallados y recomendaciones fundamentadas.
+        
+        Proceso de investigación:
+        1. Búsqueda web especializada (SerpAPI si está disponible)
+        2. Análisis y síntesis usando modelo de IA (GPT-4 Mini)
+        3. Formateo de resultados para uso del vendedor
+        4. Fallback a base de conocimiento interna si es necesario
+        
+        Args:
+            query (str): Consulta de investigación sobre vehículos específicos
+            
+        Returns:
+            str: Informe analítico detallado con recomendaciones y datos clave
+        """
         logger.info(f"🔬 MARIA RESEARCH REQUEST: {query}")
         
+        # ========================================
+        # INICIALIZACIÓN DE VARIABLES DE INVESTIGACIÓN
+        # ========================================
         raw_search_snippets = ""
         source_type = ""
         
-        # Try SerpAPI first if available
+        # ========================================
+        # BÚSQUEDA WEB ESPECIALIZADA (SERPAPI)
+        # ========================================
+        # Priorizar búsqueda web externa para obtener información actualizada
         if self.serpapi_api_key:
             try:
+                # Configurar wrapper de búsqueda con parámetros específicos para automóviles
                 search_wrapper = SerpAPIWrapper(serpapi_api_key=self.serpapi_api_key)
+                # Ejecutar búsqueda optimizada para reseñas, especificaciones y comparaciones
                 raw_search_snippets = search_wrapper.run(f"car review {query} 2023 2024 specifications safety reliability comparisons")
                 source_type = "Búsqueda Web (SerpAPI)"
-                logger.info("Maria completed web research successfully via SerpAPI.")
+                logger.info("María completó investigación web exitosamente vía SerpAPI.")
             except Exception as e:
-                logger.warning(f"⚠️ SerpAPI research failed: {e}. Falling back to knowledge base.")
-                raw_search_snippets = self._knowledge_based_research(query, internal_call=True) # Get raw data
+                logger.warning(f"⚠️ Fallo en investigación SerpAPI: {e}. Recurriendo a base de conocimiento.")
+                # Fallback a base de conocimiento interna si falla la búsqueda web
+                raw_search_snippets = self._knowledge_based_research(query, internal_call=True)
+                source_type = "Base de Conocimiento Interna"
+        else:
+            # Si no hay clave de API, usar directamente la base de conocimiento
+            raw_search_snippets = self._knowledge_based_research(query, internal_call=True)
             source_type = "Base de Conocimiento Interna"
 
-        # Now, Maria analyzes these snippets
+        # ========================================
+        # ANÁLISIS INTELIGENTE CON IA (MARÍA)
+        # ========================================
+        # María analiza los fragmentos recopilados usando GPT-4 Mini para síntesis avanzada
         maria_analyzer_prompt_text = (
             "Eres María, una investigadora de coches experta y analítica. Carlos, un vendedor, te ha hecho la siguiente consulta:\n"
             "CONSULTA DE CARLOS: \"{carlos_query}\"\n\n"
@@ -808,21 +1132,31 @@ He analizado tu consulta general: "{request}".
             "8.  Si los fragmentos son insuficientes o no concluyentes para responder bien, indícalo.\n\n"
             "INFORME ANALÍTICO PARA CARLOS:"
         )
+        # Crear template de prompt para análisis estructurado
         maria_analyzer_prompt_template = PromptTemplate.from_template(maria_analyzer_prompt_text)
 
+        # ========================================
+        # FORMATEO DE PROMPT Y EJECUCIÓN DE ANÁLISIS
+        # ========================================
         analyzer_prompt = maria_analyzer_prompt_template.format(
             carlos_query=query,
-            snippets=raw_search_snippets[:2000], # Limit snippet length for the analyzer LLM
+            snippets=raw_search_snippets[:2000], # Limitar longitud de fragmentos para el modelo
             source_type=source_type
         )
 
+        # ========================================
+        # EJECUCIÓN DEL ANÁLISIS Y GENERACIÓN DE INFORME
+        # ========================================
         try:
-            logger.info(f"🧠 Maria (o4-mini) está analizando los fragmentos de: {source_type}")
+            logger.info(f"🧠 María (GPT-4 Mini) está analizando los fragmentos de: {source_type}")
+            # Invocar modelo de IA para análisis inteligente de la información
             analytical_report = self.maria_llm.invoke(analyzer_prompt).content
-            logger.info(f"✅ Maria (o4-mini) completó el análisis.")
+            logger.info(f"✅ María (GPT-4 Mini) completó el análisis exitosamente.")
             
-            # Combine with original snippets for full context if needed, or just return report
-            # For now, returning the detailed report Maria generated, plus context about sources.
+            # ========================================
+            # COMPILACIÓN DEL INFORME FINAL
+            # ========================================
+            # Combinar análisis detallado con fragmentos originales para contexto completo
             report_parts = [
                 f"🔬 **INFORME DE INVESTIGACIÓN DE MARÍA:**",
                 f"\n**Consulta Original de Carlos:** \"{query}\"",
@@ -837,39 +1171,87 @@ He analizado tu consulta general: "{request}".
             return final_report.strip()
 
         except Exception as e:
-            logger.error(f"❌ Error durante el análisis de María (o4-mini): {e}")
-            return f"""🔬 Error en el análisis de María. No se pudo procesar la información de {source_type} para la consulta: {query}.
-Fragmentos originales: {raw_search_snippets[:500]}...
-"""
+            # ========================================
+            # MANEJO DE ERRORES EN EL ANÁLISIS
+            # ========================================
+            logger.error(f"❌ Error durante el análisis de María (GPT-4 Mini): {e}")
+            return f"""🔬 **Error en el análisis de María.** No se pudo procesar la información de {source_type} para la consulta: {query}.
+            
+**Fragmentos originales disponibles:** 
+{raw_search_snippets[:500]}...
+
+⚠️ **Recomendación:** Consulta directamente la base de conocimiento o solicita información al manager."""
     
+    # =============================================
+    # FORMATEO DE RESULTADOS DE INVESTIGACIÓN (MÉTODO LEGACY)
+    # =============================================
     def _format_research_results(self, search_results: str, query: str) -> str:
-        # This function is largely superseded by the new analytical step in _maria_research_engine
-        # However, it can be kept as a fallback or for simpler display if Maria's analysis fails.
-        # For now, the main formatting is handled within _maria_research_engine itself.
+        """
+        MÉTODO DE FORMATEO LEGACY PARA RESULTADOS DE INVESTIGACIÓN
         
-        # Simplified version, as detailed formatting/analysis is now in _maria_research_engine
+        Esta función ha sido en gran medida reemplazada por el paso de análisis
+        avanzado en _maria_research_engine. Se mantiene como fallback o para
+        visualización simplificada cuando el análisis de María falla.
+        
+        Args:
+            search_results (str): Resultados crudos de búsqueda web
+            query (str): Consulta original del usuario
+            
+        Returns:
+            str: Resultados formateados de manera básica para consulta directa
+        """
+        # ========================================
+        # FORMATEO SIMPLIFICADO DE RESULTADOS
+        # ========================================
+        # El formateo y análisis detallado ahora se maneja dentro de _maria_research_engine
         response = f"""
 🔬 **INVESTIGACIÓN DE MARÍA - RESULTADOS (Búsqueda Web Directa):**
 
 🔍 **Consulta Original:** {query}
-He realizado una búsqueda web.
+He realizado una búsqueda web especializada.
 
 📊 **Resultados Clave Extraídos:**
 {search_results[:1000]}...
 
-💡 **Análisis de María:** (Análisis más detallado ahora se realiza en un paso previo con o4-mini)
+💡 **Análisis de María:** 
 - La información ha sido recopilada de sitios web especializados y reseñas profesionales.
+- Este es un formato simplificado; el análisis detallado se realiza en un paso previo con GPT-4 Mini.
 
-⚠️ **Nota:** Esta información proviene de fuentes externas.
+⚠️ **Nota:** Esta información proviene de fuentes externas y debe verificarse con nuestro inventario específico.
 """
         return response.strip()
     
+    # =============================================
+    # INVESTIGACIÓN BASADA EN CONOCIMIENTO INTERNO
+    # =============================================
     def _knowledge_based_research(self, query: str, internal_call: bool = False) -> str:
-        """Fallback knowledge-based research. If internal_call is True, returns raw-ish data for Maria's LLM to analyze."""
+        """
+        SISTEMA DE INVESTIGACIÓN BASADO EN BASE DE CONOCIMIENTO INTERNA
+        
+        Sistema de fallback que utiliza una base de conocimiento estructurada 
+        cuando la búsqueda web no está disponible. Categoriza consultas y
+        proporciona información relevante basada en datos internos.
+        
+        Args:
+            query (str): Consulta de investigación del usuario
+            internal_call (bool): Si True, devuelve datos crudos para análisis de IA de María
+            
+        Returns:
+            str: Información de la base de conocimiento, cruda o formateada según el contexto
+        """
         query_lower = query.lower()
         
-        # Knowledge base structured as a dictionary
+        # ========================================
+        # BASE DE CONOCIMIENTO ESTRUCTURADA POR CATEGORÍAS
+        # ========================================
+        # ========================================
+        # BASE DE CONOCIMIENTO ESTRUCTURADA POR CATEGORÍAS
+        # ========================================
+        # Organizando información por temas especializados para búsqueda eficiente
         kb = {
+            # ========================================
+            # CATEGORÍA: SEGURIDAD VEHICULAR
+            # ========================================
             "seguridad": {
                 "keywords": ['seguridad', 'safety', 'airbag', 'crash', 'nhtsa', 'iihs'],
                 "data": """
@@ -882,6 +1264,9 @@ He realizado una búsqueda web.
 - **Familiar:** Anclajes ISOFIX/LATCH para sillas de bebé son estándar. Algunos modelos ofrecen alertas de ocupante trasero.
 """
             },
+            # ========================================
+            # CATEGORÍA: EFICIENCIA DE COMBUSTIBLE
+            # ========================================
             "consumo": {
                 "keywords": ['consumo', 'combustible', 'eficiencia', 'mpg', 'litros/100km', 'híbrido', 'electrico'],
                 "data": """
@@ -892,6 +1277,9 @@ He realizado una búsqueda web.
 - **Eco-Friendly:** Híbridos (HEV), Híbridos Enchufables (PHEV), Eléctricos (BEV) ofrecen el menor impacto. Motores turbo pequeños también mejoran eficiencia.
 """
             },
+            # ========================================
+            # CATEGORÍA: TECNOLOGÍA Y CONECTIVIDAD
+            # ========================================
             "tecnologia": {
                 "keywords": ['tecnología', 'tech', 'conectividad', 'pantalla', 'infotainment', 'asistentes'],
                 "data": """
@@ -902,8 +1290,11 @@ He realizado una búsqueda web.
 - **Actualizaciones OTA (Over-the-Air):** Algunos fabricantes ofrecen actualizaciones de software remotas.
 """
             },
+            # ========================================
+            # CATEGORÍA: INFORMACIÓN GENERAL
+            # ========================================
             "general_info": {
-                 "keywords": [], # Default
+                 "keywords": [], # Categoría por defecto
                  "data": """
 📋 **Información General Disponible (Base de Conocimiento):**
 - Los vehículos modelo 2022 en adelante suelen incorporar las últimas tecnologías disponibles en su gama.
@@ -913,26 +1304,61 @@ He realizado una búsqueda web.
             }
         }
 
-        found_kb_entry = kb["general_info"]["data"] # Default
+        # ========================================
+        # BÚSQUEDA Y SELECCIÓN DE CATEGORÍA RELEVANTE
+        # ========================================
+        # Comenzar con información general por defecto
+        found_kb_entry = kb["general_info"]["data"]
+        
+        # Buscar coincidencias de palabras clave para seleccionar categoría más específica
         for category_info in kb.values():
             if any(word in query_lower for word in category_info["keywords"]):
                 found_kb_entry = category_info["data"]
                 break
         
-        if internal_call: # Return the raw-ish data for Maria's LLM
+        # ========================================
+        # FORMATO DE RESPUESTA SEGÚN CONTEXTO
+        # ========================================
+        if internal_call: 
+            # Devolver datos crudos para análisis posterior de María con IA
             return found_kb_entry
 
-        # If not an internal call, means it's a direct fallback when SerpAPI is missing AND Maria's LLM analysis step is also skipped/failed
-        # This path should ideally not be hit if Maria's LLM analysis works.
-        response_intro = f"""🔬 **INVESTIGACIÓN DE MARÍA - INFORMACIÓN INTERNA (Directa):**\\n\\nConsultando nuestra base de conocimiento interna sobre tu solicitud: '{query}'.\\n"""
+        # ========================================
+        # RESPUESTA DIRECTA FORMATEADA (FALLBACK COMPLETO)
+        # ========================================
+        # Esta ruta se usa solo cuando SerpAPI falla Y el análisis de María también falla
+        response_intro = f"""🔬 **INVESTIGACIÓN DE MARÍA - INFORMACIÓN INTERNA (Directa):**
+
+Consultando nuestra base de conocimiento interna sobre tu solicitud: '{query}'.
+
+"""
         return response_intro + found_kb_entry
     
+    # =============================================
+    # ACTUALIZACIÓN DE PERFIL DE CLIENTE
+    # =============================================
     def _update_customer_profile_from_text(self, text: str) -> None:
-        """Update customer profile from conversation text"""
+        """
+        EXTRACCIÓN Y ACTUALIZACIÓN AUTOMÁTICA DEL PERFIL DEL CLIENTE
+        
+        Analiza el texto de conversación para extraer información relevante del cliente
+        y actualizar automáticamente su perfil. Utiliza expresiones regulares y análisis
+        de palabras clave para identificar:
+        - Presupuesto y rango de precio
+        - Información familiar y necesidades de seguridad
+        - Patrones de uso del vehículo
+        - Preferencias de color y estilo
+        
+        Args:
+            text (str): Texto de conversación del cliente a analizar
+        """
         text_lower = text.lower()
         
-        # Extract budget information
+        # ========================================
+        # EXTRACCIÓN DE INFORMACIÓN DE PRESUPUESTO
+        # ========================================
         import re
+        # Patrones para detectar rangos de presupuesto y precios
         budget_patterns = [
             r'presupuesto de (\d+)',
             r'hasta (\d+)',
@@ -940,47 +1366,81 @@ He realizado una búsqueda web.
             r'entre (\d+) y (\d+)'
         ]
         
+        # ========================================
+        # PROCESAMIENTO DE PATRONES DE PRESUPUESTO
+        # ========================================
         for pattern in budget_patterns:
             match = re.search(pattern, text_lower)
             if match:
                 if len(match.groups()) == 1:
+                    # Presupuesto máximo único (ej: "hasta 25000")
                     self.customer_profile.budget_max = int(match.group(1))
                 elif len(match.groups()) == 2:
+                    # Rango de presupuesto (ej: "entre 20000 y 30000")
                     self.customer_profile.budget_min = int(match.group(1))
                     self.customer_profile.budget_max = int(match.group(2))
                 break
         
-        # Extract family information
+        # ========================================
+        # EXTRACCIÓN DE INFORMACIÓN FAMILIAR
+        # ========================================
+        # Detectar necesidades familiares y prioridades de seguridad
         if any(word in text_lower for word in ['familia', 'bebé', 'niños', 'hijos']):
             self.customer_profile.safety_priority = True
+            # Agregar seguridad infantil si se menciona bebé específicamente
             if 'bebé' in text_lower and 'seguridad_infantil' not in self.customer_profile.needs:
                 self.customer_profile.needs.append('seguridad_infantil')
         
-        # Extract usage patterns
+        # ========================================
+        # EXTRACCIÓN DE PATRONES DE USO
+        # ========================================
+        # Determinar uso primario del vehículo basado en contexto
         if any(word in text_lower for word in ['trabajo', 'oficina', 'commute']):
             self.customer_profile.primary_use = 'trabajo'
         elif any(word in text_lower for word in ['familia', 'weekend', 'viajes']):
             self.customer_profile.primary_use = 'familiar'
         
-        # Extract preferences
+        # ========================================
+        # EXTRACCIÓN DE PREFERENCIAS DE COLOR
+        # ========================================
+        # Lista de colores comunes para detectar preferencias
         colors = ['rojo', 'negro', 'blanco', 'azul', 'gris', 'verde']
         for color in colors:
             if color in text_lower:
                 self.customer_profile.preferred_color = color.capitalize()
                 break
         
-        # Add to interaction history
+        # ========================================
+        # REGISTRO EN HISTORIAL DE INTERACCIONES
+        # ========================================
+        # Agregar esta interacción al historial del cliente para seguimiento
         self.customer_profile.interaction_history.append({
             'timestamp': datetime.now(),
             'content': text,
             'extracted_info': 'profile_update'
         })
     
+    # =============================================
+    # GENERACIÓN DE RESUMEN DE PERFIL DE CLIENTE
+    # =============================================
     def _get_customer_profile_summary(self) -> str:
-        """Get a summary of the customer profile"""
+        """
+        GENERACIÓN DE RESUMEN CONCISO DEL PERFIL DEL CLIENTE
+        
+        Crea un resumen legible del perfil actual del cliente para uso en
+        prompts y comunicaciones internas. Incluye solo información relevante
+        y disponible para evitar sobrecarga de datos.
+        
+        Returns:
+            str: Resumen formateado del perfil del cliente o "Perfil básico" si está vacío
+        """
         profile = self.customer_profile
         summary_parts = []
         
+        # ========================================
+        # COMPILACIÓN DE INFORMACIÓN DISPONIBLE
+        # ========================================
+        # Agregar elementos del perfil solo si están definidos
         if profile.budget_max:
             summary_parts.append(f"Presupuesto: hasta €{profile.budget_max:,}")
         if profile.preferred_color:
@@ -992,10 +1452,30 @@ He realizado una búsqueda web.
         if profile.needs:
             summary_parts.append(f"Necesidades: {', '.join(profile.needs)}")
         
+        # ========================================
+        # FORMATO FINAL DEL RESUMEN
+        # ========================================
         return "; ".join(summary_parts) if summary_parts else "Perfil básico"
     
+    # =============================================
+    # SISTEMA DE REGISTRO DE ACCIONES DE AGENTES
+    # =============================================
     def _log_agent_action(self, agent: AgentRole, action: str, details: str) -> None:
-        """Log agent actions for debugging and analysis"""
+        """
+        REGISTRO DE ACCIONES INDIVIDUALES DE AGENTES
+        
+        Sistema de logging para rastrear todas las acciones realizadas por cada agente
+        en el sistema multi-agente. Útil para debugging, análisis de rendimiento
+        y auditoria de decisiones.
+        
+        Args:
+            agent (AgentRole): Agente que realiza la acción
+            action (str): Tipo de acción realizada
+            details (str): Detalles específicos de la acción
+        """
+        # ========================================
+        # CREACIÓN DE ENTRADA DE LOG ESTRUCTURADA
+        # ========================================
         log_entry = {
             'timestamp': datetime.now(),
             'agent': agent.value,
@@ -1003,12 +1483,32 @@ He realizado una búsqueda web.
             'details': details
         }
         
+        # ========================================
+        # ALMACENAMIENTO Y LOGGING EXTERNO
+        # ========================================
         self.conversation_log.append(log_entry)
         logger.info(f"🤖 {agent.value.upper()}: {action} - {details[:100]}...")
     
+    # =============================================
+    # SISTEMA DE REGISTRO DE COMUNICACIONES INTER-AGENTE
+    # =============================================
     def _log_agent_communication(self, from_agent: AgentRole, to_agent: AgentRole, 
                                 message_type: str, content: str) -> None:
-        """Log inter-agent communications"""
+        """
+        REGISTRO DE COMUNICACIONES ENTRE AGENTES
+        
+        Rastrea todas las comunicaciones entre diferentes agentes del sistema
+        para análisis de flujo de trabajo y debugging de interacciones complejas.
+        
+        Args:
+            from_agent (AgentRole): Agente que envía el mensaje
+            to_agent (AgentRole): Agente que recibe el mensaje
+            message_type (str): Tipo de comunicación (consulta, respuesta, etc.)
+            content (str): Contenido del mensaje
+        """
+        # ========================================
+        # CREACIÓN DE REGISTRO DE COMUNICACIÓN
+        # ========================================
         communication = AgentCommunication(
             from_agent=from_agent,
             to_agent=to_agent,
@@ -1017,70 +1517,128 @@ He realizado una búsqueda web.
             timestamp=datetime.now()
         )
         
+        # ========================================
+        # ALMACENAMIENTO Y LOGGING
+        # ========================================
         self.agent_communications.append(communication)
         logger.info(f"📡 {from_agent.value} -> {to_agent.value}: {message_type}")
     
+    # =============================================
+    # PROCESAMIENTO PRINCIPAL DE ENTRADA DEL CLIENTE
+    # =============================================
     def process_customer_input(self, user_input: str) -> str:
-        """Main method to process customer input through the multi-agent system"""
+        """
+        MÉTODO PRINCIPAL PARA PROCESAR ENTRADA DEL CLIENTE
+        
+        Punto de entrada principal del sistema multi-agente. Coordina todo el flujo
+        de procesamiento desde la entrada del cliente hasta la respuesta final.
+        
+        Flujo de procesamiento:
+        1. Actualización automática del perfil del cliente
+        2. Preparación de contexto para Carlos
+        3. Procesamiento através del agente principal (Carlos)
+        4. Logging y gestión de memoria de conversación
+        5. Manejo de errores y respuestas de fallback
+        
+        Args:
+            user_input (str): Entrada de texto del cliente
+            
+        Returns:
+            str: Respuesta procesada del sistema multi-agente
+        """
         logger.info(f"👤 CUSTOMER INPUT: {user_input}")
         
         try:
-            # Update customer profile based on the new input
+            # ========================================
+            # ACTUALIZACIÓN AUTOMÁTICA DEL PERFIL
+            # ========================================
+            # Extraer y actualizar información del cliente basada en la nueva entrada
             self._update_customer_profile_from_text(user_input)
 
-            # Prepare context for Carlos
+            # ========================================
+            # PREPARACIÓN DE CONTEXTO PARA CARLOS
+            # ========================================
+            # Compilar información relevante para el agente de ventas principal
             context = {
                 'sales_stage': self.sales_stage.value,
                 'customer_profile_summary': self._get_customer_profile_summary(),
                 'internal_communications_summary': self._get_recent_communications_summary(),
-                'customer_notes_summary': self._get_customer_notes_summary() # Add notes to context
+                'customer_notes_summary': self._get_customer_notes_summary()
             }
             
-            # Process through Carlos (main sales agent)
-            # The 'tools' and 'tool_names' are part of the prompt template itself.
-            # 'agent_scratchpad' and 'chat_history' are handled by the ReAct agent and memory.
+            # ========================================
+            # PROCESAMIENTO A TRAVÉS DE CARLOS (AGENTE PRINCIPAL)
+            # ========================================
+            # Las herramientas y nombres de herramientas son parte del template de prompt
+            # 'agent_scratchpad' y 'chat_history' son manejados por el agente ReAct y memoria
             response = self.carlos_agent.invoke({
                 'input': user_input,
                 'sales_stage': context['sales_stage'],
                 'customer_profile_summary': context['customer_profile_summary'],
                 'internal_communications_summary': context['internal_communications_summary'],
                 'customer_notes_summary': context['customer_notes_summary']
-                # chat_history is managed by memory
+                # chat_history es gestionado por el sistema de memoria
             })
             
-            # Extract the final response
+            # ========================================
+            # EXTRACCIÓN Y PROCESAMIENTO DE RESPUESTA
+            # ========================================
             final_response = response.get('output', 'Lo siento, no pude procesar tu solicitud.')
             
-            # Log the interaction
+            # ========================================
+            # LOGGING Y GESTIÓN DE MEMORIA
+            # ========================================
+            # ========================================
+            # LOGGING Y GESTIÓN DE MEMORIA
+            # ========================================
+            # Registrar la interacción para análisis y debugging
             self._log_agent_action(
                 AgentRole.CARLOS_SALES,
                 "customer_response",
                 final_response[:200]
             )
             
-            # Update conversation log for Carlos's response
+            # ========================================
+            # ACTUALIZACIÓN DE HISTORIAL DE CONVERSACIÓN
+            # ========================================
+            # Actualizar log de conversación para respuesta de Carlos
             self.conversation_log.append({
                 'timestamp': datetime.now(),
                 'agent': AgentRole.CARLOS_SALES.value,
                 'action': 'response_to_customer',
                 'details': final_response
             })
+            # Agregar respuesta a memoria de Carlos para continuidad
             self.carlos_memory.chat_memory.add_ai_message(final_response)
-
 
             logger.info(f"✅ CARLOS RESPONSE: {final_response[:100]}...")
             return final_response
             
         except Exception as e:
+            # ========================================
+            # MANEJO DE ERRORES Y RESPUESTA DE FALLBACK
+            # ========================================
             logger.error(f"❌ Error processing customer input: {e}", exc_info=True)
             return "Disculpa, estoy teniendo dificultades técnicas. ¿Podrías reformular tu pregunta?"
     
+    # =============================================
+    # GENERACIÓN DE RESUMEN DE COMUNICACIONES RECIENTES
+    # =============================================
     def _get_recent_communications_summary(self) -> str:
-        """Get summary of recent inter-agent communications"""
+        """
+        RESUMEN DE COMUNICACIONES INTER-AGENTE RECIENTES
+        
+        Genera un resumen conciso de las comunicaciones más recientes entre agentes
+        para proporcionar contexto sobre el estado actual del flujo de trabajo.
+        
+        Returns:
+            str: Resumen de las últimas 3 comunicaciones o mensaje por defecto
+        """
         if not self.agent_communications:
             return "Sin comunicaciones recientes"
         
-        recent = self.agent_communications[-3:]  # Last 3 communications
+        # Obtener las últimas 3 comunicaciones para contexto reciente
+        recent = self.agent_communications[-3:]
         summary = []
         
         for comm in recent:
@@ -1088,8 +1646,19 @@ He realizado una búsqueda web.
         
         return "; ".join(summary)
     
+    # =============================================
+    # GESTIÓN DE NOTAS PERSONALES DE CARLOS
+    # =============================================
     def _get_customer_notes_summary(self) -> str:
-        """Get a summary of Carlos's personal customer notes."""
+        """
+        RESUMEN DE NOTAS PERSONALES DEL CLIENTE POR CARLOS
+        
+        Recupera y formatea las notas personales que Carlos ha tomado sobre
+        el cliente durante la interacción para mantener continuidad y personalización.
+        
+        Returns:
+            str: Notas formateadas numeradas o mensaje por defecto si no hay notas
+        """
         if not self.carlos_customer_notes:
             return "Aún no has tomado notas personales sobre este cliente."
         
@@ -1098,8 +1667,19 @@ He realizado una búsqueda web.
             formatted_notes.append(f"{i}. {note}")
         return "\n".join(formatted_notes)
     
+    # =============================================
+    # ANÁLISIS Y MÉTRICAS DE CONVERSACIÓN
+    # =============================================
     def get_conversation_analytics(self) -> Dict[str, Any]:
-        """Get analytics about the conversation and agent performance"""
+        """
+        GENERACIÓN DE ANÁLISIS Y MÉTRICAS DE RENDIMIENTO
+        
+        Proporciona métricas detalladas sobre el rendimiento de la conversación
+        y el sistema multi-agente para análisis, optimización y reporting.
+        
+        Returns:
+            Dict[str, Any]: Diccionario con métricas clave del sistema
+        """
         return {
             'total_interactions': len(self.conversation_log),
             'agent_communications': len(self.agent_communications),
@@ -1110,12 +1690,27 @@ He realizado una búsqueda web.
                                  for c in self.agent_communications[-5:]]
         }
     
+    # =============================================
+    # CÁLCULO DE COMPLETITUD DEL PERFIL
+    # =============================================
     def _calculate_profile_completeness(self) -> float:
-        """Calculate how complete the customer profile is"""
+        """
+        CÁLCULO DEL PORCENTAJE DE COMPLETITUD DEL PERFIL DEL CLIENTE
+        
+        Evalúa qué tan completo está el perfil del cliente basado en campos
+        importantes completados. Útil para determinar si se necesita más
+        información para hacer recomendaciones efectivas.
+        
+        Returns:
+            float: Porcentaje de completitud (0-100)
+        """
         profile = self.customer_profile
-        total_fields = 10  # Total important fields
+        total_fields = 10  # Total de campos importantes a evaluar
         filled_fields = 0
         
+        # ========================================
+        # EVALUACIÓN DE CAMPOS COMPLETADOS
+        # ========================================
         if profile.budget_max: filled_fields += 1
         if profile.preferred_make: filled_fields += 1
         if profile.preferred_color: filled_fields += 1
@@ -1129,6 +1724,21 @@ He realizado una búsqueda web.
         
         return (filled_fields / total_fields) * 100
 
+# =============================================
+# FUNCIÓN FACTORY PARA CREACIÓN DEL SISTEMA
+# =============================================
 def get_advanced_multi_agent_system(openai_api_key: str, serpapi_api_key: str = None) -> AdvancedCarSalesSystem:
-    """Factory function to create the advanced multi-agent system"""
+    """
+    FUNCIÓN FACTORY PARA CREAR EL SISTEMA MULTI-AGENTE AVANZADO
+    
+    Función de conveniencia para instanciar el sistema completo de ventas multi-agente
+    con configuración estándar. Facilita la integración en aplicaciones externas.
+    
+    Args:
+        openai_api_key (str): Clave API de OpenAI requerida para funcionalidad de IA
+        serpapi_api_key (str, optional): Clave API de SerpAPI para búsquedas web avanzadas
+        
+    Returns:
+        AdvancedCarSalesSystem: Instancia completamente configurada del sistema multi-agente
+    """
     return AdvancedCarSalesSystem(openai_api_key, serpapi_api_key) 

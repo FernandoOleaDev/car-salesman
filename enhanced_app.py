@@ -1,19 +1,26 @@
-import langchain
+# =============================
+# Importaciones principales
+# =============================
+import langchain  # Importa la librería LangChain para agentes de IA
 
-import streamlit as st
-import os
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime
-import time
-import json
-from dotenv import load_dotenv
+import streamlit as st  # Framework para crear interfaces web interactivas
+import os  # Para operaciones del sistema operativo
+import pandas as pd  # Para manejo de datos tabulares
+import plotly.express as px  # Para gráficos interactivos
+import plotly.graph_objects as go  # Para gráficos avanzados
+from datetime import datetime  # Para manejo de fechas y horas
+import time  # Para funciones de tiempo
+import json  # Para manejo de datos JSON
+from dotenv import load_dotenv  # Para cargar variables de entorno desde .env
 
-# Load environment variables
+# =============================
+# Cargar variables de entorno
+# =============================
 load_dotenv()
 
-# Import systems
+# =============================
+# Importar sistemas principales
+# =============================
 try:
     from advanced_multi_agent_system import get_advanced_multi_agent_system
     from enhanced_inventory_manager import get_inventory_manager
@@ -21,7 +28,9 @@ except ImportError as e:
     st.error(f"Import error: {e}")
     st.stop()
 
-# --- Page Configuration ---
+# =============================
+# Configuración de la página Streamlit
+# =============================
 st.set_page_config(
     page_title="CarBot Pro - AI Car Salesman", 
     page_icon="🚗",
@@ -29,7 +38,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# =============================
+# CSS personalizado para mejorar el estilo visual
+# =============================
 st.markdown("""
 <style>
     .main-header {
@@ -66,7 +77,7 @@ st.markdown("""
         border-left: 3px solid #ffc107;
         margin: 0.2rem 0;
         font-size: 0.8rem;
-        color: #503e00; /* Darker text for yellow background */
+        color: #503e00; /* Texto más oscuro para fondo amarillo */
     }
     .log-entry {
         background: #f8f9fa;
@@ -75,23 +86,25 @@ st.markdown("""
         margin: 0.1rem 0;
         font-family: monospace;
         font-size: 0.7rem;
-        color: #212529; /* Darker text for light gray background */
+        color: #212529; /* Texto oscuro para fondo claro */
     }
     .customer-profile {
-        background: #e7f3ff; /* Light blue background */
+        background: #e7f3ff; /* Fondo azul claro */
         padding: 1rem;
         border-radius: 8px;
         border-left: 4px solid #007bff;
-        color: #002b5c; /* Dark blue text for good contrast */
+        color: #002b5c; /* Texto azul oscuro para buen contraste */
     }
     .customer-profile p,
     .customer-profile li {
-        color: #002b5c; /* Ensure p and li elements also inherit/use dark color */
+        color: #002b5c; /* Asegura que p y li también usen color oscuro */
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Header ---
+# =============================
+# Encabezado principal de la app
+# =============================
 st.markdown("""
 <div class="main-header">
     <h1>🚗 CarBot Pro - Sistema Multiagente Avanzado</h1>
@@ -99,11 +112,13 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- Sidebar Configuration ---
+# =============================
+# Configuración de la barra lateral
+# =============================
 with st.sidebar:
     st.header("🔧 Configuración del Sistema")
     
-    # Agent Type Selection
+    # Selección de tipo de agente
     st.markdown("**🤖 Sistema Multiagente Profesional**")
     st.markdown("- **Carlos** (GPT-4o): Vendedor experto")
     st.markdown("- **María** (o4-mini): Especialista en investigación")
@@ -111,10 +126,10 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # API Keys
+    # Claves API
     st.subheader("🔑 Claves API")
     
-    # Try to get from environment first
+    # Intenta obtener las claves desde el entorno
     default_openai_key = os.getenv('OPENAI_API_KEY', '')
     default_serpapi_key = os.getenv('SERPAPI_API_KEY', '')
     
@@ -133,7 +148,7 @@ with st.sidebar:
         help="Opcional: permite a María hacer investigación web en tiempo real"
     )
     
-    # Initialize Agent Button
+    # Botón para inicializar el sistema
     if st.button("🚀 Inicializar Sistema Avanzado", type="primary"):
         if openai_api_key:
             with st.spinner("Inicializando sistema multiagente avanzado..."):
@@ -155,7 +170,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # System Status
+    # Estado del sistema
     st.subheader("📊 Estado del Sistema")
     if st.session_state.get('system_initialized', False):
         st.markdown('<div class="agent-status">🟢 Sistema Operativo</div>', unsafe_allow_html=True)
@@ -166,7 +181,7 @@ with st.sidebar:
         st.write("- 🔍 María (o4-mini - Investigación)")
         st.write("- 👔 Manager (GPT-4o - Coordinación)")
         
-        # Show system analytics if available
+        # Muestra estadísticas del sistema si están disponibles
         if hasattr(st.session_state.agent_system, 'get_conversation_analytics'):
             analytics = st.session_state.agent_system.get_conversation_analytics()
             st.write("**Estadísticas:**")
@@ -179,18 +194,22 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Debug Mode Toggle
+    # Modo debug
     st.subheader("🔧 Modo Debug")
     debug_mode = st.checkbox("Mostrar logs detallados del sistema", value=True)
     show_agent_comms = st.checkbox("Mostrar comunicaciones entre agentes", value=True)
 
-# Initialize demo_concluded state if not present
+# =============================
+# Inicialización de estado para demo
+# =============================
 if 'demo_concluded' not in st.session_state:
     st.session_state.demo_concluded = False
 
-# --- Main Content ---
+# =============================
+# Contenido principal de la app
+# =============================
 if not st.session_state.get('system_initialized', False):
-    # Welcome Screen
+    # Pantalla de bienvenida
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("""
@@ -230,12 +249,15 @@ if not st.session_state.get('system_initialized', False):
         """)
 
 else:
-    # Main Application Layout
-    col1, col2 = st.columns([2, 1]) # Define columns for the main layout
+    # =============================
+    # Layout principal de la aplicación
+    # =============================
+    col1, col2 = st.columns([2, 1]) # Define columnas para el layout principal
 
-    with col1: # Chat Area
+    with col1: # Área de chat
         st.subheader("💬 Chat con CarBot Pro")
         
+        # Inicializa el historial de mensajes si no existe
         if "messages" not in st.session_state:
             st.session_state.messages = []
             welcome_msg = """¡Hola! Soy **Carlos**, tu vendedor de coches personal con IA avanzada. 
@@ -247,10 +269,12 @@ Tengo 15 años de experiencia ayudando a familias a encontrar el vehículo perfe
                 "timestamp": datetime.now(), "agent": "Carlos"
             })
 
+        # Muestra el historial de mensajes
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
+        # Entrada de usuario y procesamiento de respuesta
         if not st.session_state.get('demo_concluded', False):
             if user_input := st.chat_input("¿Qué estás buscando hoy?", key="customer_chat_input_active"):
                 st.session_state.messages.append({
@@ -266,6 +290,7 @@ Tengo 15 años de experiencia ayudando a familias a encontrar el vehículo perfe
                                 "role": "assistant", "content": carlos_response,
                                 "timestamp": datetime.now(), "agent": "Carlos"
                             })
+                            # Si la venta se concluye, marca la demo como finalizada
                             if "ha sido reservado exitosamente" in carlos_response or \
                                "proceso de compra ha concluido" in carlos_response:
                                 st.session_state.demo_concluded = True
@@ -275,15 +300,15 @@ Tengo 15 años de experiencia ayudando a familias a encontrar el vehículo perfe
                         except Exception as e:
                             st.error(f"Error al procesar la entrada: {e}")
                             st.session_state.messages.append({"role": "assistant", "content": f"Lo siento, ocurrió un error interno: {e}"})
-                        if not st.session_state.get('demo_concluded', False): # Rerun if not concluded by this response
+                        if not st.session_state.get('demo_concluded', False): # Rerun si no se concluyó
                            st.rerun()
                     else:
                         st.error("El sistema de agentes no está inicializado.")
         
-        elif st.session_state.get('demo_concluded', False): # Chat input area when demo is concluded
+        elif st.session_state.get('demo_concluded', False): # Área de chat cuando la demo concluye
             st.info("Chat deshabilitado. La demo ha concluido.")
 
-        # Sale conclusion message and Restart button (still within col1, below chat area)
+        # Mensaje de cierre de venta y botón de reinicio
         if st.session_state.get('demo_concluded', False):
             st.success("🎉 ¡Venta Concluida! El vehículo ha sido reservado.")
             st.info("Para una nueva demo, por favor reinicia.")
@@ -294,12 +319,14 @@ Tengo 15 años de experiencia ayudando a familias a encontrar el vehículo perfe
                         del st.session_state[key]
                 st.rerun()
 
-    # Information Panel (col2) - should always render if system is initialized
+    # =============================
+    # Panel de información (col2)
+    # =============================
     if st.session_state.get('system_initialized', False):
         with col2:
             st.subheader("⚙️ Información del Sistema y Cliente")
 
-            # Display Customer Profile
+            # Mostrar perfil del cliente
             if st.session_state.get('system_initialized', False) and hasattr(st.session_state.agent_system, 'customer_profile'):
                 profile = st.session_state.agent_system.customer_profile
                 with st.expander("👤 Perfil del Cliente (detectado por Carlos)", expanded=True):
@@ -336,23 +363,30 @@ Tengo 15 años de experiencia ayudando a familias a encontrar el vehículo perfe
                         st.markdown("Aún no se ha detectado información específica del perfil.")
                     st.markdown('</div>', unsafe_allow_html=True)
 
-            # Display Carlos's Customer Notes
+            # Mostrar notas personales de Carlos
             if st.session_state.get('system_initialized', False) and hasattr(st.session_state.agent_system, 'carlos_customer_notes'):
                 notes = st.session_state.agent_system.carlos_customer_notes
                 with st.expander("📝 Notas de Carlos sobre el Cliente", expanded=False):
                     if notes:
-                        st.markdown('<div class="agent-communication" style="border-left-color: #6f42c1; background-color: #f3e8ff; color: #3d236b;">', unsafe_allow_html=True) # Purple-ish theme
+                        st.markdown('<div class="agent-communication" style="border-left-color: #6f42c1; background-color: #f3e8ff; color: #3d236b;">', unsafe_allow_html=True) # Tema morado
                         for i, note in enumerate(notes, 1):
                             st.markdown(f"**Nota {i}:** {note}")
                         st.markdown('</div>', unsafe_allow_html=True)
                     else:
                         st.info("Carlos aún no ha tomado notas personales sobre este cliente.")
             
-            # Display Recent Inventory (Simplified)
+            # Mostrar inventario reciente (simplificado)
             if st.session_state.get('system_initialized', False):
                 st.subheader("📊 Inventario de Vehículos")
-                if hasattr(st.session_state, 'agent_system') and st.session_state.agent_system and hasattr(st.session_state.agent_system, 'inventory_manager'):
-                    inventory_df_display = st.session_state.agent_system.inventory_manager.inventory_df.copy()
+                if (
+                    hasattr(st.session_state, 'agent_system') and 
+                    st.session_state.agent_system and 
+                    hasattr(st.session_state.agent_system, 'inventory_manager') and 
+                    st.session_state.agent_system.inventory_manager is not None and 
+                    hasattr(st.session_state.agent_system.inventory_manager, 'inventory_df') and 
+                    st.session_state.agent_system.inventory_manager.inventory_df is not None
+                ):
+                    inventory_df_display = st.session_state.agent_system.inventory_manager.inventory_df.copy()  # Copia el DataFrame de inventario
                     if 'status' not in inventory_df_display.columns:
                          inventory_df_display['status'] = 'Available'
                     
@@ -374,6 +408,7 @@ Tengo 15 años de experiencia ayudando a familias a encontrar el vehículo perfe
                 else:
                     st.info("Inventario no disponible.")
 
+            # Mostrar comunicaciones recientes entre agentes
             if debug_mode or show_agent_comms:
                 st.subheader("📡 Comunicaciones Recientes entre Agentes")
                 if show_agent_comms and hasattr(st.session_state, 'agent_system') and \
@@ -387,6 +422,7 @@ Tengo 15 años de experiencia ayudando a familias a encontrar el vehículo perfe
                 elif show_agent_comms:
                     st.info("Comunicaciones no disponibles.")
 
+            # Mostrar log del sistema
             if debug_mode:
                 st.subheader("⚙️ Log del Sistema (Últimas Acciones)")
                 if hasattr(st.session_state, 'agent_system') and \
@@ -400,7 +436,9 @@ Tengo 15 años de experiencia ayudando a familias a encontrar el vehículo perfe
                 else:
                     st.info("Logs del sistema no disponibles.")
 
-# --- Footer ---
+# =============================
+# Footer de la aplicación
+# =============================
 st.markdown("---")
 col1, col2, col3 = st.columns(3)
 
